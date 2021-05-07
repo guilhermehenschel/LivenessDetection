@@ -1,0 +1,7 @@
+/Data/
+/venv/
+.idea/*
+*.pyc
+/model.h5
+/model.png
+/plot.png
