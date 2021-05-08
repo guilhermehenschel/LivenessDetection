@@ -1,9 +1,16 @@
+import os
 import tensorflow as tf
 import matplotlib.pyplot as plt
 import tensorflow.keras as keras
+import cv2
 import numpy as np
+from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import train_test_split
+import datetime as dt
 
 path = r"Data"
+now = dt.datetime.now().strftime("%Y_%m_%d_%H_%M")
+outpath = r"Output/"+now+"/"
 RANDOM_SEED = 170389
 IMAGE_SIZE = (124, 124)
 BATCH_SIZE = 32
@@ -12,45 +19,34 @@ INIT_LR = 1e-4
 
 LABELS = ["live","spoof"]
 
+dir_list = os.listdir(path)
+data = []
+labels = []
 
-def plot_images(images, labels):
-    import matplotlib.pyplot as plt
+for dir in dir_list:
+    tmp_path = path+"/"+dir
+    for file in os.listdir(tmp_path):
+        label = dir
+        image = cv2.imread(tmp_path+"/"+file)
+        try:
+            image = cv2.resize(image, IMAGE_SIZE)
+        except:
+            print(file)
+            quit()
 
-    plt.figure(figsize=(10, 10))
-    for images, LABELS in train_ds.take(1):
-        for i in range(9):
-            ax = plt.subplot(3, 3, i + 1)
-            plt.imshow(images[i].numpy().astype("uint8"))
-            plt.title(int(labels[i]))
-            plt.axis("off")
-
-    plt.show()
+        # update the data and labels lists, respectively
+        data.append(image)
+        labels.append(label)
 
 
-train_ds = tf.keras.preprocessing.image_dataset_from_directory(
-    path,
-    validation_split=0.3,
-    subset="training",
-    seed=RANDOM_SEED,
-    image_size=IMAGE_SIZE,
-    batch_size=BATCH_SIZE,
-)
-val_ds = tf.keras.preprocessing.image_dataset_from_directory(
-    path,
-    validation_split=0.3,
-    subset="validation",
-    seed=RANDOM_SEED,
-    image_size=IMAGE_SIZE,
-    batch_size=BATCH_SIZE,
-)
+data = np.array(data, dtype="float")/255.0
+# encode the labels (which are currently strings) as integers and then
+# one-hot encode them
+le = LabelEncoder()
+labels = le.fit_transform(labels)
+labels = keras.utils.to_categorical(labels, 2)
 
-""""This is better for CPU forms
-    Going to use Model direct Augmentation to improve performance
-"""
-# augmented_train_ds = train_ds.map(lambda x, y: (data_augmentation(x, training=True), y))
-
-train_ds = train_ds.prefetch(buffer_size=32)
-val_ds = val_ds.prefetch(buffer_size=32)
+trainX, testX, trainY, testY = train_test_split(data, labels, test_size=0.3, random_state=RANDOM_SEED)
 
 import LivenessModel as LM
 
@@ -70,16 +66,15 @@ model.compile(
 callback_es = tf.keras.callbacks.EarlyStopping(
     monitor="val_loss",
     mode="auto",
-    patience=EPOCHS,
+    patience=2,
     baseline=None,
     restore_best_weights=True,
 )
 
-H = model.fit(
-    train_ds, epochs=EPOCHS, validation_data=val_ds, callbacks=[callback_es]
-)
+H = model.fit(x=trainX, y=trainY, epochs=EPOCHS, validation_data=(testX,testY), callbacks=[callback_es])
+
 model.summary()
-tf.keras.utils.plot_model(model, show_shapes=True)
+tf.keras.utils.plot_model(model, show_shapes=True, to_file=outpath+"model.png")
 
 img = tf.keras.preprocessing.image.load_img(
     "Data/spoof/0001_00_00_01_198.jpg", target_size=IMAGE_SIZE
@@ -87,34 +82,37 @@ img = tf.keras.preprocessing.image.load_img(
 img_array = tf.keras.preprocessing.image.img_to_array(img)
 img_array = tf.expand_dims(img_array, 0)  # Create batch axis
 
-model.save("model.h5")
-
-model.save("model.h5")
+model.save(outpath+"model.h5")
 
 plt.style.use("ggplot")
 plt.figure()
-plt.plot(np.arange(0, EPOCHS), H.history["loss"], label="train_loss")
-plt.plot(np.arange(0, EPOCHS), H.history["val_loss"], label="val_loss")
+plt.plot(H.history["loss"], label="train_loss")
+plt.plot(H.history["val_loss"], label="val_loss")
 plt.title("Training Loss on Dataset")
 plt.xlabel("Epoch #")
 plt.ylabel("Loss")
 plt.legend(loc="upper right")
-plt.savefig("plot_loss.png")
+plt.savefig(outpath+"plot_loss.png")
 
 plt.figure()
-plt.plot(np.arange(0, EPOCHS), H.history["accuracy"], label="train_accuracy")
-plt.plot(np.arange(0, EPOCHS), H.history["val_accuracy"], label="val_accuracy")
+plt.plot(H.history["accuracy"], label="train_accuracy")
+plt.plot(H.history["val_accuracy"], label="val_accuracy")
 plt.title("Training Loss and Accuracy on Dataset")
 plt.xlabel("Epoch #")
 plt.ylabel("Accuracy")
 plt.legend(loc="lower right")
-plt.savefig("plot_acc.png")
+plt.savefig(outpath+"plot_acc.png")
 
-predictions = model.predict(val_ds.as_numpy_iterator(), batch_size=BATCH_SIZE)
+result = model.evaluate(testX, batch_size=BATCH_SIZE)
+print(f"Loss is {result[0]} and accuracy is {result[1]}")
 
-from sklearn.metrics import classification_report
 
-true_categories = tf.concat([y for x, y in val_ds], axis=0)
+from sklearn.metrics import classification_report, confusion_matrix
 
-print(classification_report(true_categories,
-	predictions.round(1), target_names=LABELS))
+predictions = model.predict(testX, batch_size=BATCH_SIZE)
+with open(outpath+"results","w") as result_file:
+    result_file.write(classification_report(testY.argmax(axis=1), predictions.argmax(axis=1), target_names=le.classes_))
+    print(classification_report(testY.argmax(axis=1), predictions.argmax(axis=1), target_names=le.classes_))
+    result_file.write("\n============Confusion Matrix===================\n")
+    result_file.write(str(confusion_matrix(testY.argmax(axis=1), predictions.argmax(axis=1))))
+    print(confusion_matrix(testY.argmax(axis=1), predictions.argmax(axis=1)))
