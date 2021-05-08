@@ -11,6 +11,7 @@ import datetime as dt
 path = r"Data"
 now = dt.datetime.now().strftime("%Y_%m_%d_%H_%M")
 outpath = r"Output/"+now+"/"
+os.mkdir(outpath)
 RANDOM_SEED = 170389
 IMAGE_SIZE = (124, 124)
 BATCH_SIZE = 32
@@ -45,6 +46,8 @@ data = np.array(data, dtype="float")/255.0
 le = LabelEncoder()
 labels = le.fit_transform(labels)
 labels = keras.utils.to_categorical(labels, 2)
+with open(outpath+'classes.npy', 'wb') as np_file:
+    np.save(np_file, le.classes_)
 
 trainX, testX, trainY, testY = train_test_split(data, labels, test_size=0.3, random_state=RANDOM_SEED)
 
@@ -116,3 +119,5 @@ with open(outpath+"results","w") as result_file:
     result_file.write("\n============Confusion Matrix===================\n")
     result_file.write(str(confusion_matrix(testY.argmax(axis=1), predictions.argmax(axis=1))))
     print(confusion_matrix(testY.argmax(axis=1), predictions.argmax(axis=1)))
+
+quit()
